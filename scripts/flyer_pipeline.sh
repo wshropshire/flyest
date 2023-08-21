@@ -202,7 +202,7 @@ echo -e "Minimum coverage depth will be ${CLEAN_COV_INPUT}\n"
 
 # Remove sequences in draft assembly with coverage depth less than minimum: Default = 20% of mean coverage depth of draft assembly
 echo -e "Step 2: Evaluating minimum coverage depth and minimum contig length per sequence in draft assembly\n"
-source $SCRIPT_DIR/flye_draft_clean.sh $OUT_DIR/${SAMPLE}_flye_assembly $CLEAN_COV_INPUT $MIN_LENGTH
+python $SCRIPT_DIR/flye_draft_clean.py $OUT_DIR/${SAMPLE}_flye_assembly $CLEAN_COV_INPUT $MIN_LENGTH
 
 # TODO: Consider dump polishing if contig numbers exceed a number
 
