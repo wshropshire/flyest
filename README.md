@@ -5,6 +5,10 @@
 ## Objective
 This pipeline was created for the purpose of polishing bacterial draft genome assemblies from the Flye assembler using either Oxford Nanopore Technologies long-reads only (Flyer) or a hybrid approach that combines ONT long-read and Illumina short-read sequencing data. The pipeline integrates multiple tools and performs iterative rotations of the assembly to improve the quality of the consensus genome. This script is inspired by looking at best practices as of 2023-07-17 for both long-read only and hybrid assembly approaches with a lot of inspiration from the work of Ryan Wick. 
 
+## Author
+
+[William Shropshire](https://twitter.com/The_Real_Shrops)
+
 ## Scope
 The pipeline covers the following steps:
 1. Initial draft assembly using Flye with long-read input (Nanopore).
