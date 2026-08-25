@@ -14,7 +14,7 @@ where:
 	-n|--min	Minimum coverage depth per sequence as a fraction of the overall draft assembly mean coverage depth [Default=0.2; i.e. 20%]. Use a value of '0.001' for no minimum coverage depth.
 	-l|--len	Minimum contig length per sequence [Default=1000].
 	--meta	Meta option for Flye [Default is not set] - Good for uneven/low coverage assemblies.
-	-m|--mod	Medaka model [Default=r1041_e82_400bps_sup_v4.2.0].
+	-m|--mod	Path to a Medaka model archive --REQUIRED.
 	--nid	Nucmer min_id parameter for removing highly similar contigs based on percent minimum nucleotide identity shared [Default = 95].
 	--nlen	Nucmer min_length parameter for removing highly similar contigs based on percent minimum contig length shared [Default = 90].
 	--no-qc	Disable quick QC script [Default is on].
@@ -38,7 +38,6 @@ FLYE_READ_MOD="--nano-hq"
 META=""
 MIN_COV='0.2'
 MIN_LENGTH='1000'
-MEDAKA_MODEL="r1041_e82_400bps_sup_v4.2.0"
 NUC_ID="95"
 NUC_LEN="90"
 THREADS=1
@@ -83,7 +82,6 @@ do
 			;;
 		--no-qc)
             		EXECUTE_QUICK_QC=false
-            		shift
             		;;
 		-o|--outdir)
 			export OUT_DIR="$2"
@@ -102,7 +100,7 @@ do
 			shift
 			;;
 		-h|--help|-u|--usage)
-			"$USAGE"
+			echo "$USAGE"
 			exit 0
 			;;
 		*)
@@ -117,6 +115,12 @@ done
 MISSING="is missing but required. Exiting."
 if [ -z ${FASTQ_FILE+x} ]; then echo "-i $MISSING"; echo "$USAGE"; exit 1; fi;
 if [ -z ${OUT_DIR+x} ]; then echo "-o $MISSING"; echo "$USAGE"; exit 1; fi;
+if [ -z ${MEDAKA_MODEL+x} ]; then echo "ERROR: -m/--mod is missing. Supply a path to a Medaka model archive." >&2; exit 1; fi
+if [ ! -f "$FASTQ_FILE" ]; then echo "ERROR: Input file '$FASTQ_FILE' was not found." >&2; exit 1; fi
+if [ ! -f "$MEDAKA_MODEL" ]; then
+	echo "ERROR: Medaka model '$MEDAKA_MODEL' was not found. Supply an existing model archive with -m/--mod." >&2
+	exit 1
+fi
 
 ### Create directories and logging ---------------------------------------------------------
 
@@ -124,7 +128,24 @@ if [ -z ${OUT_DIR+x} ]; then echo "-o $MISSING"; echo "$USAGE"; exit 1; fi;
 START_TIME=$(date +%s)
 
 # Set script directory pathway variable
-SCRIPT_DIR="$(dirname "$0")"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+for command_name in flye medaka medaka_consensus dnaapler berokka minimap2 samtools pilon nucmer bc python; do
+	if ! command -v "$command_name" >/dev/null 2>&1; then
+		echo "ERROR: $command_name was not found. Activate the Flyest Conda environment." >&2
+		exit 1
+	fi
+done
+if [[ "$EXECUTE_QUICK_QC" = true ]] && ! command -v bedtools >/dev/null 2>&1; then
+	echo "ERROR: bedtools was not found. Activate the Flyest Conda environment or use --no-qc." >&2
+	exit 1
+fi
+for helper in flye_draft_clean.py clean.py dnaapler_script.sh quick_qc_script.sh; do
+	if [ ! -f "$SCRIPT_DIR/$helper" ]; then
+		echo "ERROR: Required helper '$SCRIPT_DIR/$helper' was not found." >&2
+		exit 1
+	fi
+done
 
 # Create directory if not currently existing and proceed to logging. If directory existing, echo usage
 if [ -d "$OUT_DIR" ]

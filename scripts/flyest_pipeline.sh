@@ -16,7 +16,7 @@ where:
 	-n|--min	Minimum coverage depth per sequence as a fraction of the overall draft assembly mean coverage depth [Default=0.2; i.e. 20%]. Use a value of '0.001' for no minimum coverage depth.
 	-l|--len	Minimum contig length per sequence [Default=1000].
 	--meta	Meta option for Flye [Default is not set] - Good for uneven/low coverage assemblies.
-	-m|--mod	Medaka model [Default=r1041_e82_400bps_sup_v4.2.0].
+	-m|--mod	Path to a Medaka model archive --REQUIRED.
 	--nid	Nucmer min_id parameter for removing highly similar contigs based on percent minimum nucleotide identity shared [Default = 95].
 	--nlen	Nucmer min_length parameter for removing highly similar contigs based on percent minimum contig length shared [Default = 90].
 	--no-qc	Disable quick QC script [Default is on].
@@ -40,7 +40,6 @@ FLYE_READ_MOD="--nano-hq"
 META=""
 MIN_COV='0.2'
 MIN_LENGTH='1000'
-MEDAKA_MODEL="r1041_e82_400bps_sup_v4.2.0"
 NUC_ID="95"
 NUC_LEN="90"
 THREADS=1
@@ -128,6 +127,18 @@ if [ -z ${FASTQ_FILE+x} ]; then echo "-i $MISSING"; echo "$USAGE"; exit 1; fi;
 if [ -z ${PE1+x} ]; then echo "-1 ${MISSING}. If creating long-read only assembly, use flyer script"; echo "$USAGE"; exit 1; fi;
 if [ -z ${PE2+x} ]; then echo "-2 ${MISSING}. If creating long-read only assembly, use flyer script"; echo "$USAGE"; exit 1; fi;
 if [ -z ${OUT_DIR+x} ]; then echo "-o $MISSING"; echo "$USAGE"; exit 1; fi;
+if [ -z ${MEDAKA_MODEL+x} ]; then echo "ERROR: -m/--mod is missing. Supply a path to a Medaka model archive." >&2; exit 1; fi
+
+for input_file in "$FASTQ_FILE" "$PE1" "$PE2"; do
+	if [ ! -f "$input_file" ]; then
+		echo "ERROR: Input file '$input_file' was not found." >&2
+		exit 1
+	fi
+done
+if [ ! -f "$MEDAKA_MODEL" ]; then
+	echo "ERROR: Medaka model '$MEDAKA_MODEL' was not found. Supply an existing model archive with -m/--mod." >&2
+	exit 1
+fi
 
 ### Create directories and logging ---------------------------------------------------------
 
@@ -135,7 +146,28 @@ if [ -z ${OUT_DIR+x} ]; then echo "-o $MISSING"; echo "$USAGE"; exit 1; fi;
 START_TIME=$(date +%s)
 
 # Set script directory pathway variable
-SCRIPT_DIR="$(dirname "$0")"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+for command_name in flye medaka medaka_consensus dnaapler berokka minimap2 samtools pilon bwa polypolish polypolish_insert_filter.py freebayes nucmer perl bc python; do
+	if ! command -v "$command_name" >/dev/null 2>&1; then
+		echo "ERROR: $command_name was not found. Activate the Flyest Conda environment." >&2
+		exit 1
+	fi
+done
+if [[ "$EXECUTE_QUICK_QC" = true ]] && ! command -v bedtools >/dev/null 2>&1; then
+	echo "ERROR: bedtools was not found. Activate the Flyest Conda environment or use --no-qc." >&2
+	exit 1
+fi
+for helper in flye_draft_clean.py clean.py dnaapler_script.sh quick_qc_script.sh polca_mod.sh fix_consensus_from_vcf.pl; do
+	if [ ! -f "$SCRIPT_DIR/$helper" ]; then
+		echo "ERROR: Required helper '$SCRIPT_DIR/$helper' was not found." >&2
+		exit 1
+	fi
+done
+if [ ! -x "$SCRIPT_DIR/../binaries/ufasta" ]; then
+	echo "ERROR: Bundled ufasta executable '$SCRIPT_DIR/../binaries/ufasta' was not found or is not executable." >&2
+	exit 1
+fi
 
 # Create directory if not currently existing and proceed to logging. If directory existing, echo usage
 if [ -d "$OUT_DIR" ]
@@ -195,7 +227,7 @@ export BEROKKA=berokka
 export BWA=bwa
 export POLY_INSERT=polypolish_insert_filter.py
 export POLYPOLISH=polypolish
-export POLCA=polca_mod.sh 
+export POLCA="$SCRIPT_DIR/polca_mod.sh"
 
 #### Draft Assembly
 echo -e "Step 1: Creating draft assembly with Flye\n"
@@ -292,13 +324,21 @@ $SCRIPT_DIR/dnaapler_script.sh "$FASTA_INPUT3" "$FASTA_OUTPUT3" "$FUNCTION1" "$O
 echo ""
 echo -e "Step 6: Start second short-read polish: Let's POLCA! - Derived from MaSuRCA-v4.1.0\n"
 
-$POLCA -t $THREADS -a $FASTA_OUTPUT3 -r "$PE1 $PE2"
+$POLCA -t $THREADS -a $FASTA_OUTPUT3 -r $PE1 $PE2
 
+# --- Collect POLCA outputs (updated paths from polca_mod.sh) ---
 mkdir -p $OUT_DIR/${SAMPLE}_polca
-mv $OUT_DIR/${SAMPLE}_dnaapler3_polca.fasta $OUT_DIR/${SAMPLE}_polca
-mv $OUT_DIR/${SAMPLE}_polca/${SAMPLE}_dnaapler3_polca.fasta $OUT_DIR/${SAMPLE}_polca/${SAMPLE}_polca.fasta
-mv $OUT_DIR/${SAMPLE}_dnaapler3_polca.report $OUT_DIR/${SAMPLE}_polca.report
-mv $OUT_DIR/${SAMPLE}_polca.report/$OUT_DIR/logs
+
+POLCA_FASTA="$OUT_DIR/tmp/${SAMPLE}_dnaapler3_polca.fasta"
+POLCA_REPORT="$OUT_DIR/logs/${SAMPLE}_dnaapler3_polca.report"
+
+if [[ -f "$POLCA_FASTA" && -f "$POLCA_REPORT" ]]; then
+    cp "$POLCA_FASTA" "$OUT_DIR/${SAMPLE}_polca/${SAMPLE}_polca.fasta"
+    cp "$POLCA_REPORT" "$OUT_DIR/${SAMPLE}_polca/${SAMPLE}_polca.report"
+    echo "[INFO] POLCA outputs collected successfully."
+else
+    echo "[WARN] Expected POLCA outputs not found in tmp/ or logs/."
+fi
 
 # Call dnaapler to reorient isolates one last time - run plasmid first given that plasmids will likely not have dnaA, thus will reorient on second call 
 
